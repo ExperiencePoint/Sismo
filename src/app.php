@@ -16,6 +16,7 @@ use Sismo\Sismo;
 use Sismo\Project;
 use Sismo\Storage\Storage;
 use Sismo\Builder;
+use Sismo\BuildSubscriber;
 use Symfony\Component\Process\Process;
 use Symfony\Component\HttpFoundation\Response;
 use SensioLabs\AnsiConverter\AnsiToHtmlConverter;
@@ -96,11 +97,18 @@ $app['builder'] = $app->share(function () use ($app) {
         throw new \RuntimeException(sprintf('The git binary cannot be found (%s).', $app['git.path']));
     }
 
-    return new Builder($app['build.path'], $app['git.path'], $app['git.cmds']);
+    return new Builder();
 });
 
+$app['build_subscriber'] = $app->share(function () use ($app) {
+    return new BuildSubscriber($app['storage'], $app['build.path'], $app['git.path'], $app['git.cmds']);
+});
+
+
+$app['dispatcher']->addSubscriber($app['build_subscriber']);
+
 $app['sismo'] = $app->share(function () use ($app) {
-    $sismo = new Sismo($app['storage'], $app['builder']);
+    $sismo = new Sismo($app['storage']);
     if (!is_file($app['config.file'])) {
         throw new \RuntimeException(sprintf("Looks like you forgot to define your projects.\nSismo looked into \"%s\".", $app['config.file']));
     }

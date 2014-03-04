@@ -9,8 +9,10 @@
  * with this source code in the file LICENSE.
  */
 
-use Sismo\Sismo;
+use Sismo\BuildEvent;
+use Sismo\BuildEvents;
 use Sismo\BuildException;
+use Sismo\Sismo;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputArgument;
@@ -221,8 +223,15 @@ EOF
             }
 
             try {
-                $output->writeln(sprintf('<info>Building Project "%s" (into "%s")</info>', $project, $app['builder']->getBuildDir($project)));
-                $sismo->build($project, $input->getArgument('sha'), $flags, $callback);
+                $output->writeln(sprintf('<info>Building Project "%s" (into "%s")</info>', $project, $app['build_subscriber']->getBuildDir($project)));
+
+                $event = new BuildEvent($project, $input->getArgument('sha'), $flags, $callback);
+                $app['dispatcher']->dispatch(BuildEvents::PRE_BUILD, $event);
+                if ($event->isPropagationStopped()) {
+                    return;
+                }
+                $app['dispatcher']->dispatch(BuildEvents::BUILD, $event);
+                $app['dispatcher']->dispatch(BuildEvents::POST_BUILD, $event);
 
                 $output->writeln('');
             } catch (BuildException $e) {
@@ -231,6 +240,7 @@ EOF
                 $returnValue = 1;
             }
         }
+
         return $returnValue;
     })
 ;

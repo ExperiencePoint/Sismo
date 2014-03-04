@@ -27,19 +27,16 @@ class Sismo
     const SILENT_BUILD = 4;
 
     private $storage;
-    private $builder;
     private $projects = array();
 
     /**
      * Constructor.
      *
      * @param StorageInterface $storage A StorageInterface instance
-     * @param Builder          $builder A Builder instance
      */
-    public function __construct(StorageInterface $storage, Builder $builder)
+    public function __construct(StorageInterface $storage)
     {
         $this->storage = $storage;
-        $this->builder = $builder;
     }
 
     /**
@@ -52,41 +49,16 @@ class Sismo
      */
     public function build(Project $project, $revision = null, $flags = 0, $callback = null)
     {
-        // project already has a running build
-        if ($project->isBuilding() && Sismo::FORCE_BUILD !== ($flags & Sismo::FORCE_BUILD)) {
+        $event = new BuildEvent($project, $revision, $flags, $callback);
+        $this->dispatcher->dispatch(BuildEvents::PRE_BUILD, $event);
+        if ($event->isPropagationStopped()) {
             return;
         }
-
-        $this->builder->init($project, $callback);
-
-        list($sha, $author, $date, $message) = $this->builder->prepare($revision, Sismo::LOCAL_BUILD !== ($flags & Sismo::LOCAL_BUILD));
-
-        $commit = $this->storage->getCommit($project, $sha);
-
-        // commit has already been built
-        if ($commit && $commit->isBuilt() && Sismo::FORCE_BUILD !== ($flags & Sismo::FORCE_BUILD)) {
-            return;
+        if ($callback) {
+            call_user_func($event->getCallback(), 'out', 'BUILD START');
         }
-
-        $commit = $this->storage->initCommit($project, $sha, $author, \DateTime::createFromFormat('Y-m-d H:i:s O', $date), $message);
-
-        $process = $this->builder->build();
-
-        if (!$process->isSuccessful()) {
-            $commit->setStatusCode('failed');
-            $commit->setOutput(sprintf("\033[31mBuild failed\033[0m\n\n\033[33mOutput\033[0m\n%s\n\n\033[33m Error\033[0m%s", $process->getOutput(), $process->getErrorOutput()));
-        } else {
-            $commit->setStatusCode('success');
-            $commit->setOutput($process->getOutput());
-        }
-
-        $this->storage->updateCommit($commit);
-
-        if (Sismo::SILENT_BUILD !== ($flags & Sismo::SILENT_BUILD)) {
-            foreach ($project->getNotifiers() as $notifier) {
-                $notifier->notify($commit);
-            }
-        }
+        $this->dispatcher->dispatch(BuildEvents::BUILD, $event);
+        $this->dispatcher->dispatch(BuildEvents::POST_BUILD, $event);
     }
 
     /**
